@@ -66,7 +66,7 @@ class OffsitePostfinanceBackend(object):
         urlpatterns = patterns('',
             url(r'^$', self.view_that_asks_for_money, name='postfinance' ),
             url(r'^success/$', self.postfinance_return_successful_view, name='postfinance_success' ),
-            url(r'^somethinghardtoguess/instantpaymentnotification/$', self.postfinance_ipn, 'postfinance_ipn'),
+            url(r'^somethinghardtoguess/instantpaymentnotification/$', self.postfinance_ipn, name='postfinance_ipn'),
         )
         return urlpatterns
     
@@ -106,7 +106,7 @@ class OffsitePostfinanceBackend(object):
         form_class = DeclarativeFieldsMetaclass('PostfinanceForm', (forms.Form,), fields)
         form = form_class(initial=postfinance_dict)
         context = RequestContext(request, {'form': form})
-        return render_to_response("payment.html", context)
+        return render_to_response("shop_postfinance/payment.html", context)
     
     def postfinance_return_successful_view(self, request):
         return HttpResponseRedirect(self.shop.get_finished_url())
@@ -146,7 +146,7 @@ class OffsitePostfinanceBackend(object):
         
         data = request.REQUEST
         # Verify that the info is valid (with the SHA sum)
-        valid = security_check(data, settings.POSTFINANCE_SECRET_KEY)
+        valid = security_check(data, settings.POSTFINANCE_SHAOUT_KEY)
         if valid:
             order_id = data['orderID']
             order = self.shop.get_order_for_id(order_id) # Get the order from either the POST or the GET parameters
@@ -155,25 +155,25 @@ class OffsitePostfinanceBackend(object):
             # Create an IPN transaction trace in the database
             PostfinanceIPN.objects.create(
                 orderID=order_id,
-                currency=order.get('currency', ''),
-                amount=order.get('amount', ''),
-                PM=order.get('PM', ''),
-                ACCEPTANCE=order.get('ACCEPTANCE', ''),
-                STATUS=order.get('STATUS', ''),
-                CARDNO=order.get('CARDNO', ''),
-                CN=order.get('CN', ''),
-                TRXDATE=order.get('TRXDATE', ''),
-                PAYID=order.get('PAYID', ''),
-                NCERROR=order.get('NCERROR', ''),
-                BRAND=order.get('BRAND', ''),
-                IPCTY=order.get('IPCTY', ''),
-                CCCTY=order.get('CCCTY', ''),
-                ECI=order.get('ECI', ''),
-                CVCCheck=order.get('CVCCheck', ''),
-                AAVCheck=order.get('AAVCheck', ''),
-                VC=order.get('VC', ''),
-                IP=order.get('IP', ''),
-                SHASIGNorder =order.get('SHASIGNorder', ''),
+                currency=data.get('currency', ''),
+                amount=data.get('amount', ''),
+                PM=data.get('PM', ''),
+                ACCEPTANCE=data.get('ACCEPTANCE', ''),
+                STATUS=data.get('STATUS', ''),
+                CARDNO=data.get('CARDNO', ''),
+                CN=data.get('CN', ''),
+                TRXDATE=data.get('TRXDATE', ''),
+                PAYID=data.get('PAYID', ''),
+                NCERROR=data.get('NCERROR', ''),
+                BRAND=data.get('BRAND', ''),
+                IPCTY=data.get('IPCTY', ''),
+                CCCTY=data.get('CCCTY', ''),
+                ECI=data.get('ECI', ''),
+                CVCCheck=data.get('CVCCheck', ''),
+                AAVCheck=data.get('AAVCheck', ''),
+                VC=data.get('VC', ''),
+                IP=data.get('IP', ''),
+                SHASIGN=data.get('SHASIGN', ''),
             )
             # This actually records the payment in the shop's database
             self.shop.confirm_payment(order, amount, transaction_id, self.backend_name)

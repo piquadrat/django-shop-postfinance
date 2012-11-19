@@ -13,7 +13,6 @@ def security_check(data, secret_key):
     '''
     cap_data = {}
     string_list = []
-    secret_key = settings.POSTFINANCE_SECRET_KEY
 
     for key, val in data.iteritems():
         cap_data[key.upper()] = val # make all keys capital letters
@@ -29,7 +28,7 @@ def security_check(data, secret_key):
     # Now we have a sorted list of parameters that have capital keys (like the doc says)
 
     hash_string = secret_key.join(string_list)
-    hash_string = "%s%s" % (hash_string,secret_key)
+    hash_string = "%s%s" % (hash_string, secret_key)
 
     #hash_string =  "AMOUNT=%s%sCURRENCY=%s%sLANGUAGE=%s%sORDERID=%s%sPSPID=%s%s" #% (amount, key, currency, key, language, key, order_id, key, pspid, key)
     s = hashlib.sha1()
