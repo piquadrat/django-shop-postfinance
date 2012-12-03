@@ -65,11 +65,39 @@ class OffsitePostfinanceBackend(object):
     def get_urls(self):
         urlpatterns = patterns('',
             url(r'^$', self.view_that_asks_for_money, name='postfinance' ),
-            url(r'^success/$', self.postfinance_return_successful_view, name='postfinance_success' ),
+            url(r'^success/$', self.postfinance_return_successful_view, name='postfinance_success'),
             url(r'^somethinghardtoguess/instantpaymentnotification/$', self.postfinance_ipn, name='postfinance_ipn'),
         )
         return urlpatterns
-    
+
+    def get_form(self, request, order, prefix=None, **fields):
+        order_id = self.shop.get_order_unique_id(order)
+        amount = self.shop.get_order_total(order)
+        currency = settings.POSTFINANCE_CURRENCY.upper()
+        language = self._convert_language(get_language())
+
+        amount = str(int(amount * 100))
+
+        postfinance_dict = {
+            'PSPID': settings.POSTFINANCE_PSP_ID ,
+            'orderID': order_id,
+            'amount': amount,
+            'currency': currency,
+            'language': language,
+            'ACCEPTURL': absolute_url(request, reverse('postfinance_success')),
+            'CANCELURL': absolute_url(request, reverse('cart_delete')),
+            }
+        postfinance_dict.update(self.extra_data)
+        postfinance_dict.update(**fields)
+        postfinance_dict['SHASign'] = compute_security_checksum(**postfinance_dict)
+
+        fields = {}
+        for key in postfinance_dict:
+            fields[key] = forms.CharField(widget=ValueHiddenInput())
+
+        form_class = DeclarativeFieldsMetaclass('PostfinanceForm', (forms.Form,), fields)
+        return form_class(initial=postfinance_dict, prefix=prefix)
+
     #===========================================================================
     # Views
     #===========================================================================
@@ -80,35 +108,13 @@ class OffsitePostfinanceBackend(object):
         a reference to the shop interface
         '''
         order = self.shop.get_order(request)
-        order_id = self.shop.get_order_unique_id(order)
-        amount = self.shop.get_order_total(order)
-        currency = settings.POSTFINANCE_CURRENCY.upper()
-        language = self._convert_language(get_language())
-        
-        amount = str(int(amount * 100))
-        
-        postfinance_dict = {
-            'PSPID': settings.POSTFINANCE_PSP_ID ,
-            'orderID': order_id,
-            'amount': amount,
-            'currency': currency,
-            'language': language,
-            'ACCEPTURL': absolute_url(request, reverse('postfinance_success')),
-            'CANCELURL': absolute_url(request, reverse('cart_delete')),
-        }
-        postfinance_dict.update(self.extra_data)
-        postfinance_dict['SHASign'] = compute_security_checksum(**postfinance_dict)
-        
-        fields = {}
-        for key in postfinance_dict:
-            fields[key] = forms.CharField(widget=ValueHiddenInput())
-        
-        form_class = DeclarativeFieldsMetaclass('PostfinanceForm', (forms.Form,), fields)
-        form = form_class(initial=postfinance_dict)
-        context = RequestContext(request, {'form': form})
+
+        context = RequestContext(request, {'form': self.get_form(request, order)})
         return render_to_response("shop_postfinance/payment.html", context)
     
     def postfinance_return_successful_view(self, request):
+        if request.GET:
+            self.postfinance_ipn(request)
         return HttpResponseRedirect(self.shop.get_finished_url())
     
     def postfinance_ipn(self, request):
@@ -146,6 +152,13 @@ class OffsitePostfinanceBackend(object):
         
         data = request.REQUEST
         # Verify that the info is valid (with the SHA sum)
+        if self.confirm_payment_data(data):
+            return HttpResponse('OKAY')
+            
+        else: # Checksum failed
+            return HttpResponseBadRequest()
+
+    def confirm_payment_data(self, data):
         valid = security_check(data, settings.POSTFINANCE_SHAOUT_KEY)
         if valid:
             order_id = data['orderID']
@@ -153,32 +166,35 @@ class OffsitePostfinanceBackend(object):
             transaction_id = data['PAYID']
             amount = data['amount']
             # Create an IPN transaction trace in the database
-            PostfinanceIPN.objects.create(
+            ipn, created = PostfinanceIPN.objects.get_or_create(
                 orderID=order_id,
-                currency=data.get('currency', ''),
-                amount=data.get('amount', ''),
-                PM=data.get('PM', ''),
-                ACCEPTANCE=data.get('ACCEPTANCE', ''),
-                STATUS=data.get('STATUS', ''),
-                CARDNO=data.get('CARDNO', ''),
-                CN=data.get('CN', ''),
-                TRXDATE=data.get('TRXDATE', ''),
-                PAYID=data.get('PAYID', ''),
-                NCERROR=data.get('NCERROR', ''),
-                BRAND=data.get('BRAND', ''),
-                IPCTY=data.get('IPCTY', ''),
-                CCCTY=data.get('CCCTY', ''),
-                ECI=data.get('ECI', ''),
-                CVCCheck=data.get('CVCCheck', ''),
-                AAVCheck=data.get('AAVCheck', ''),
-                VC=data.get('VC', ''),
-                IP=data.get('IP', ''),
-                SHASIGN=data.get('SHASIGN', ''),
+                defaults = dict(
+                    currency=data.get('currency', ''),
+                    amount=data.get('amount', ''),
+                    PM=data.get('PM', ''),
+                    ACCEPTANCE=data.get('ACCEPTANCE', ''),
+                    STATUS=data.get('STATUS', ''),
+                    CARDNO=data.get('CARDNO', ''),
+                    CN=data.get('CN', ''),
+                    TRXDATE=data.get('TRXDATE', ''),
+                    PAYID=data.get('PAYID', ''),
+                    NCERROR=data.get('NCERROR', ''),
+                    BRAND=data.get('BRAND', ''),
+                    IPCTY=data.get('IPCTY', ''),
+                    CCCTY=data.get('CCCTY', ''),
+                    ECI=data.get('ECI', ''),
+                    CVCCheck=data.get('CVCCheck', ''),
+                    AAVCheck=data.get('AAVCheck', ''),
+                    VC=data.get('VC', ''),
+                    IP=data.get('IP', ''),
+                    SHASIGN=data.get('SHASIGN', ''),
+                )
             )
-            # This actually records the payment in the shop's database
-            self.shop.confirm_payment(order, amount, transaction_id, self.backend_name)
-            
-            return HttpResponse('OKAY')
-            
+            if created:
+                # This actually records the payment in the shop's database
+                self.shop.confirm_payment(order, amount, transaction_id, self.backend_name)
+
+            return True
+
         else: # Checksum failed
-            return HttpResponseBadRequest()
+            return False
