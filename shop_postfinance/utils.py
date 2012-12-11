@@ -32,9 +32,9 @@ def security_check(data, secret_key):
 
     #hash_string =  "AMOUNT=%s%sCURRENCY=%s%sLANGUAGE=%s%sORDERID=%s%sPSPID=%s%s" #% (amount, key, currency, key, language, key, order_id, key, pspid, key)
     s = hashlib.sha1()
-    s.update(hash_string)
+    s.update(hash_string.encode('utf8'))
     hex = s.hexdigest().upper()
-    original =  data['SHASIGN']
+    original = data['SHASIGN']
     return hex == original
 
 
@@ -45,5 +45,5 @@ def compute_security_checksum(**data):
     hash_string = ""
     for key, value in sorted(contents.items()):
         hash_string += "%s=%s%s" % (key, value, secret_key)
-    output = hashlib.sha1(hash_string).hexdigest().upper()
+    output = hashlib.sha1(hash_string.encode('utf8')).hexdigest().upper()
     return output
