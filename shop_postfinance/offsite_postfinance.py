@@ -8,6 +8,7 @@ from django.http import (HttpResponseBadRequest, HttpResponse,
 from django.shortcuts import render_to_response
 from django.template.context import RequestContext
 from django.utils.translation import get_language
+from django.views.decorators.csrf import csrf_exempt
 from shop_postfinance.forms import ValueHiddenInput
 from shop_postfinance.models import PostfinanceIPN
 from shop_postfinance.utils import security_check, compute_security_checksum
@@ -66,7 +67,8 @@ class OffsitePostfinanceBackend(object):
         urlpatterns = patterns('',
             url(r'^$', self.view_that_asks_for_money, name='postfinance' ),
             url(r'^success/$', self.postfinance_return_successful_view, name='postfinance_success'),
-            url(r'^somethinghardtoguess/instantpaymentnotification/$', self.postfinance_ipn, name='postfinance_ipn'),
+            url(r'^instantpaymentnotification/$', csrf_exempt(self.postfinance_ipn), name='postfinance_ipn'),
+            url(r'^somethinghardtoguess/instantpaymentnotification/$', csrf_exempt(self.postfinance_ipn), kwargs={'deprecated': True}),
         )
         return urlpatterns
 
@@ -86,7 +88,7 @@ class OffsitePostfinanceBackend(object):
             'language': language,
             'ACCEPTURL': absolute_url(request, reverse('postfinance_success')),
             'CANCELURL': absolute_url(request, reverse('cart_delete')),
-            }
+        }
         postfinance_dict.update(self.extra_data)
         postfinance_dict.update(**fields)
         postfinance_dict['SHASign'] = compute_security_checksum(**postfinance_dict)
@@ -103,10 +105,10 @@ class OffsitePostfinanceBackend(object):
     #===========================================================================
     
     def view_that_asks_for_money(self, request):
-        '''
+        """
         We need this to be a method and not a function, since we need to have
         a reference to the shop interface
-        '''
+        """
         order = self.shop.get_order(request)
 
         context = RequestContext(request, {'form': self.get_form(request, order)})
@@ -117,10 +119,10 @@ class OffsitePostfinanceBackend(object):
             self.postfinance_ipn(request)
         return HttpResponseRedirect(self.shop.get_finished_url())
     
-    def postfinance_ipn(self, request):
+    def postfinance_ipn(self, request, deprecated=False):
         """
-        Similar to paypal's IPN, postfinance will send an instant notification to the website, 
-        passing the following parameters in the URL:
+        Similar to paypal's IPN, postfinance will send an instant notification
+        to the website, passing the following parameters in the URL:
         
         orderID=Test27&
         currency=CHF&
@@ -143,32 +145,38 @@ class OffsitePostfinanceBackend(object):
         IP=84.226.127.220&
         SHASIGN=CEE483B0557B8E3437A55094221E15C7DB6A0D63
         
-        Cornfirms that payment has been completed and marks invoice as paid.
-        This can come from two sources: Wither the client was redirected to our success page from postfinance (and so the order
-        information is contained in GET parameters), or the client messed up and postfinance sends us a direct server-to-server
-        http connection with parameters passed in the POST fields.
+        Confirms that payment has been completed and marks invoice as paid.
+        This can come from two sources: Either the client was redirected to our
+        success page from postfinance (and so the order information is contained
+        in GET parameters), or the client messed up and postfinance sends us a
+        direct server-to-server http connection with parameters passed in the
+        POST fields.
         
         """
-        
+        if deprecated:
+            import warnings
+            warnings.warn('usage of this URL is deprecated. Please use the URL without the "somethinghardtoguess" part.', DeprecationWarning)
         data = request.REQUEST
         # Verify that the info is valid (with the SHA sum)
         if self.confirm_payment_data(data):
             return HttpResponse('OKAY')
-            
-        else: # Checksum failed
+        else:  # Checksum failed
             return HttpResponseBadRequest()
 
     def confirm_payment_data(self, data):
-        valid = security_check(data, settings.POSTFINANCE_SHAOUT_KEY)
+        try:
+            valid = security_check(data, settings.POSTFINANCE_SHAOUT_KEY)
+        except KeyError:
+            valid = False
         if valid:
             order_id = data['orderID']
-            order = self.shop.get_order_for_id(order_id) # Get the order from either the POST or the GET parameters
+            order = self.shop.get_order_for_id(order_id)  # Get the order from either the POST or the GET parameters
             transaction_id = data['PAYID']
             amount = data['amount']
             # Create an IPN transaction trace in the database
             ipn, created = PostfinanceIPN.objects.get_or_create(
                 orderID=order_id,
-                defaults = dict(
+                defaults=dict(
                     currency=data.get('currency', ''),
                     amount=data.get('amount', ''),
                     PM=data.get('PM', ''),
@@ -196,5 +204,5 @@ class OffsitePostfinanceBackend(object):
 
             return True
 
-        else: # Checksum failed
+        else:  # Checksum failed
             return False
