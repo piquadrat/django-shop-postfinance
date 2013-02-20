@@ -8,6 +8,7 @@ from django.http import (HttpResponseBadRequest, HttpResponse,
 from django.shortcuts import render_to_response
 from django.template.context import RequestContext
 from django.utils.translation import get_language
+from django.utils.http import urlencode
 from django.views.decorators.csrf import csrf_exempt
 from shop_postfinance.forms import ValueHiddenInput
 from shop_postfinance.models import PostfinanceIPN
@@ -49,6 +50,8 @@ class OffsitePostfinanceBackend(object):
             assert self.fallback_language[4].isupper(), errmsg
         else:
             self.fallback_language = 'de_DE'
+        self.entry_url = getattr(settings, 'POSTFINANCE_ENTRY_URL', 'https://e-payment.postfinance.ch/ncol/test/orderstandard_utf8.asp')
+        self.skip_confirmation = getattr(settings, 'POSTFINANCE_SKIP_CONFIRMATION_VIEW', False)
     
     def _convert_language(self, rfc5646_language_code):
         """
@@ -72,7 +75,7 @@ class OffsitePostfinanceBackend(object):
         )
         return urlpatterns
 
-    def get_form(self, request, order, prefix=None, **fields):
+    def get_form_initial(self, request, order, **fields):
         order_id = self.shop.get_order_unique_id(order)
         amount = self.shop.get_order_total(order)
         currency = settings.POSTFINANCE_CURRENCY.upper()
@@ -80,8 +83,8 @@ class OffsitePostfinanceBackend(object):
 
         amount = str(int(amount * 100))
 
-        postfinance_dict = {
-            'PSPID': settings.POSTFINANCE_PSP_ID ,
+        initial = {
+            'PSPID': settings.POSTFINANCE_PSP_ID,
             'orderID': order_id,
             'amount': amount,
             'currency': currency,
@@ -89,16 +92,20 @@ class OffsitePostfinanceBackend(object):
             'ACCEPTURL': absolute_url(request, reverse('postfinance_success')),
             'CANCELURL': absolute_url(request, reverse('cart_delete')),
         }
-        postfinance_dict.update(self.extra_data)
-        postfinance_dict.update(**fields)
-        postfinance_dict['SHASign'] = compute_security_checksum(**postfinance_dict)
+        initial.update(self.extra_data)
+        initial.update(**fields)
+        initial['SHASign'] = compute_security_checksum(**initial)
+        return initial
+
+    def get_form(self, request, order, prefix=None, **fields):
+        initial = self.get_form_initial(request, order, **fields)
 
         fields = {}
-        for key in postfinance_dict:
+        for key in initial:
             fields[key] = forms.CharField(widget=ValueHiddenInput())
 
         form_class = DeclarativeFieldsMetaclass('PostfinanceForm', (forms.Form,), fields)
-        return form_class(initial=postfinance_dict, prefix=prefix)
+        return form_class(initial=initial, prefix=prefix)
 
     #===========================================================================
     # Views
@@ -110,8 +117,11 @@ class OffsitePostfinanceBackend(object):
         a reference to the shop interface
         """
         order = self.shop.get_order(request)
-
-        context = RequestContext(request, {'form': self.get_form(request, order)})
+        if self.skip_confirmation:
+            data = self.get_form_initial(request, order)
+            url = '%s?%s' % (self.entry_url, urlencode(data))
+            return HttpResponseRedirect(url)
+        context = RequestContext(request, {'form': self.get_form(request, order), 'url': self.entry_url})
         return render_to_response("shop_postfinance/payment.html", context)
     
     def postfinance_return_successful_view(self, request):
