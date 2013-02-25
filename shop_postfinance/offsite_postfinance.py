@@ -1,10 +1,11 @@
 from django import forms
 from django.conf import settings
-from django.conf.urls.defaults import patterns, url
+from django.conf.urls import patterns, url
+from django.db import models
 from django.core.urlresolvers import reverse
 from django.forms.forms import DeclarativeFieldsMetaclass
 from django.http import (HttpResponseBadRequest, HttpResponse, 
-    HttpResponseRedirect)
+    HttpResponseRedirect, Http404)
 from django.shortcuts import render_to_response
 from django.template.context import RequestContext
 from django.utils.translation import get_language
@@ -180,7 +181,10 @@ class OffsitePostfinanceBackend(object):
             valid = False
         if valid:
             order_id = data['orderID']
-            order = self.shop.get_order_for_id(order_id)  # Get the order from either the POST or the GET parameters
+            try:
+                order = self.shop.get_order_for_id(order_id)
+            except models.ObjectDoesNotExist:
+                raise Http404('Order does not exist on this machine')
             transaction_id = data['PAYID']
             amount = data['amount']
             # Create an IPN transaction trace in the database
