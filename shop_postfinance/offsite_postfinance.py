@@ -8,7 +8,7 @@ from django.http import (HttpResponseBadRequest, HttpResponse,
     HttpResponseRedirect, Http404)
 from django.shortcuts import render_to_response
 from django.template.context import RequestContext
-from django.utils.translation import get_language
+from django.utils.translation import get_language, ugettext_lazy as _
 from django.utils.http import urlencode
 from django.views.decorators.csrf import csrf_exempt
 from shop_postfinance.forms import ValueHiddenInput
@@ -23,6 +23,7 @@ def absolute_url(request, path):
 
 class OffsitePostfinanceBackend(object):
     backend_name = "Postfinance"
+    backend_verbose_name = _("Postfinance")
     url_namespace = "postfinance"
     
     #===========================================================================
