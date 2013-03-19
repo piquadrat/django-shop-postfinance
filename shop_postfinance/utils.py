@@ -15,14 +15,14 @@ def security_check(data, secret_key):
     string_list = []
 
     for key, val in data.iteritems():
-        cap_data[key.upper()] = val # make all keys capital letters
+        cap_data[key.upper()] = val  # make all keys capital letters
 
     for key in sorted(cap_data.keys()):
-        if key != 'SHASIGN':
+        if key != 'SHASIGN' and cap_data[key]:
 #            if key == 'AMOUNT': # Must be: cap_data['AMOUNT'] = "%.0f" % (cap_data['AMOUNT']*100)
 #                entry = "%s=%.0f" % (key,float(cap_data[key])*100)
 #            else:
-            entry = "%s=%s" % (key,cap_data[key])
+            entry = "%s=%s" % (key, cap_data[key])
             string_list.append(entry)
 
     # Now we have a sorted list of parameters that have capital keys (like the doc says)
